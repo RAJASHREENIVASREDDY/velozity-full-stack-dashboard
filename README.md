@@ -27,7 +27,7 @@ A small agency needs one internal tool where admins see everything, project mana
 ## 3. Technology stack
 
 Frontend: React 18, TypeScript, Vite 5, React Router 6, TanStack Query 5, socket.io-client 4, Axios.
-Backend: Node 20, Express 4, TypeScript, Prisma 5, PostgreSQL 16, Socket.io 4, Zod 3, node-cron 3, bcryptjs 2, jsonwebtoken 9.
+Backend: Node 20, Express 4, TypeScript, Prisma 5, PostgreSQL 16+, Socket.io 4, Zod 3, node-cron 3, bcryptjs 2, jsonwebtoken 9.
 Infra: Docker + Compose (Postgres + optional API profile), `.env` config, Nginx/Vercel-ready client.
 
 ## 4. Architecture
@@ -75,13 +75,13 @@ HttpOnly cookie `velozity_refresh`, `Path=/api/auth`, `SameSite=Lax` (None when 
 
 Middleware `authenticate` (JWT → DB user → `req.user`) + `requireRole(...)` + service-level ownership checks (`services/authorization.ts`). Developers get 404 (not 403) for foreign tasks/projects to avoid existence leaks; explicit role violations (e.g. dev hitting project-management or admin endpoints) get 403. Frontend guards are UX-only.
 
-| Example | Result |
-|---|---|
-| Dev reads another dev's task | 404 |
-| PM reads another PM's project | 404 |
-| Dev hits `POST /projects` / `POST /tasks` / `GET /projects` | 403 |
-| Non-admin hits `/api/users` | 403 |
-| Dev patches another field besides `status` | 403 |
+| Example                                                     | Result |
+| ----------------------------------------------------------- | ------ |
+| Dev reads another dev's task                                | 404    |
+| PM reads another PM's project                               | 404    |
+| Dev hits `POST /projects` / `POST /tasks` / `GET /projects` | 403    |
+| Non-admin hits `/api/users`                                 | 403    |
+| Dev patches another field besides `status`                  | 403    |
 
 ## 12. WebSocket architecture
 
@@ -124,32 +124,62 @@ All JSON: `{ success: true, data }` / `{ success: false, error: { code, message,
 - Users (ADMIN): `GET/POST /api/users`, `GET/PATCH /api/users/:id`
 - Clients: `GET /api/clients`, `POST/PATCH/DELETE /api/clients/:id` (create/update/delete = admin; PM/dev read per matrix — devs blocked)
 - Projects: `GET/POST /api/projects`, `GET/PATCH/DELETE /api/projects/:id` (devs blocked from direct reads)
-- Tasks: `GET /api/tasks?status&priority&from&to&projectId&q&page&pageSize`, `POST /tasks`, `GET/PATCH/DELETE /tasks/:id`
+  Tasks: `GET /api/tasks?status&priority&from&to&projectId&q&page&pageSize`, `POST /api/tasks`, `GET/PATCH/DELETE /api/tasks/:id`
 - Activity: `GET /api/activity?limit&projectId&taskId`
 - Notifications: `GET /api/notifications`, `GET /api/notifications/unread-count`, `PATCH /api/notifications/:id/read`, `PATCH /api/notifications/read-all`
 - Dashboard: `GET /api/dashboard/admin|pm|dev`
 
 ## 21. Local setup
 
+### Option A — Docker (preferred)
+
 ```powershell
-# 1) Start Postgres
 docker compose up -d
-# 2) Configure
+```
+
+### Option B — Native PostgreSQL
+
+Install and start PostgreSQL locally, then configure `server/.env` with the appropriate `DATABASE_URL`.
+
+### Configure environment
+
+```powershell
 Copy-Item server\.env.example server\.env
 Copy-Item client\.env.example client\.env
-# 3) Install
+```
+
+Update `server\.env` with your local PostgreSQL connection details and required JWT secrets.
+
+### Install dependencies
+
+```powershell
 npm --prefix server install
 npm --prefix client install
-# 4) DB
+```
+
+### Initialize and seed the database
+
+```powershell
 npm --prefix server run db:generate
 npm --prefix server run db:push
 npm --prefix server run db:seed
-# 5) Run (two terminals)
-npm --prefix server run dev
-npm --prefix client run dev
 ```
 
-App: client `http://localhost:5173`, API `http://localhost:4000`.
+### Run the application
+
+Use two terminals.
+
+**Terminal 1 — API**
+
+```powershell
+npm --prefix server run dev
+```
+
+**Terminal 2 — Client**
+
+```powershell
+npm --prefix client run dev
+```
 
 ## 22. Docker setup
 
@@ -170,7 +200,7 @@ npm --prefix server run db:push      # simple sync for local/dev
 npm --prefix server run db:seed
 ```
 
-Seeded password (configurable via `SEED_PASSWORD`, default `Velozity123!`): `admin@velozity.local`, `pm1@velozity.local`, `pm2@velozity.local`, `dev1–4@velozity.local`. Passwords are bcrypt-hashed; the script is idempotent (upserts).
+Seeded password (configurable via `SEED_PASSWORD`, default `Velozity123!`): `admin@velozity.local`, `pm1@velozity.local`, `pm2@velozity.local`, `dev1–4@velozity.local`. Passwords are bcrypt-hashed. Users, clients, and projects are created or reused safely; tasks are created only when the corresponding seeded task does not already exist, so running the seed does not reset existing task statuses.
 
 ## 25. Test command
 
@@ -199,6 +229,11 @@ npm --prefix client run typecheck
 Backend (`server/.env.example`): `DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `ACCESS_TOKEN_EXPIRES_IN`, `REFRESH_TOKEN_EXPIRES_IN_DAYS`, `PORT`, `CLIENT_URL`, `NODE_ENV`, `COOKIE_SECURE`, `OVERDUE_CRON`, `SEED_PASSWORD`. Frontend (`client/.env.example`): `VITE_API_URL`. Root `.env.example`: Postgres + compose settings.
 
 ## 29. Known limitations
+
+- Docker is provided as the preferred local setup, but native PostgreSQL is also supported. The application was verified locally with PostgreSQL, Prisma schema push/seed, API startup, frontend startup, and the seeded demo data.
+- Refresh rotation keeps revoked rows (no periodic purge job yet).
+- File uploads, email sending, and audit export are out of scope.
+- `bcryptjs` (pure-JS) is used instead of native `bcrypt` for Windows/portability; same API and cost factor.
 
 - No Docker daemon in this build environment, so live Postgres/seed/CLI verification below used `prisma validate/generate`, typecheck, unit tests, and builds; run `db:push` + `db:seed` where Docker is available.
 - Refresh rotation keeps revoked rows (no periodic purge job yet).
