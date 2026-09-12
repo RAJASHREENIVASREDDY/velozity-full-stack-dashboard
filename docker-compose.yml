@@ -1,0 +1,44 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: velozity-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-velozity}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-velozity_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-velozity_dashboard}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-velozity} -d ${POSTGRES_DB:-velozity_dashboard}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # Optional: run the API with docker. Requires DATABASE_URL pointing at postgres service.
+  # Build with: docker compose --profile app up --build
+  api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: velozity-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-4000}:4000"
+    env_file:
+      - ./server/.env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-velozity}:${POSTGRES_PASSWORD:-velozity_dev_password}@postgres:5432/${POSTGRES_DB:-velozity_dashboard}
+      CLIENT_URL: ${CLIENT_URL:-http://localhost:5173}
+    profiles: ["app"]
+
+volumes:
+  pgdata:
